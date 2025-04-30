@@ -1,7 +1,7 @@
 from jplephem.calendar import compute_julian_date
 from matplotlib import pyplot as plt
 
-from qlipper.sim.ephemeris import generate_interpolant_arrays, lookup_body_id
+from qlipper.sim.ephemeris import generate_ephem_arrays, lookup_body_id
 
 barycenter = lookup_body_id("solar system barycenter")
 
@@ -14,7 +14,7 @@ colours = ["yellow", "blue", "gray"]
 
 for body, colour in zip(bodies_to_plot, colours):
     b_id = lookup_body_id(body)
-    _, y = generate_interpolant_arrays(barycenter, b_id, epoch, t_span, 1000)
+    _, y = generate_ephem_arrays(barycenter, b_id, epoch, t_span, 1000)
 
     plt.plot(y[0, :], y[1, :], label=body, color=colour)
 

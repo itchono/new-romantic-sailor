@@ -1,6 +1,9 @@
-MU = 3.986004415e14  # Gravitational parameter of Earth [m^3/s^2]
+MU_EARTH = 3.986004415e14  # Gravitational parameter of Earth [m^3/s^2]
+MU_MOON = 4.9048695e12  # Gravitational parameter of Moon [m^3/s^2]
+MU_SUN = 1.32712440018e20  # Gravitational parameter of Sun [m^3/s^2]
 R_EARTH = 6378e3  # Earth radius [m]
-P_SCALING = 6378e3  # Scaling factor for p [m]
+R_MOON = 1737e3  # Moon radius [m]
+LENGTH_SCALING = 6378e3  # Scaling factor for p [m]
 OUTPUT_DIR = "outputs"
 CFG_DIR = "configs"
 

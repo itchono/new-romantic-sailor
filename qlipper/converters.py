@@ -1,8 +1,8 @@
+from functools import partial
+
 import jax
 import jax.numpy as jnp
 from jax.typing import ArrayLike
-
-from qlipper.constants import MU
 
 
 @jax.jit
@@ -54,15 +54,18 @@ def steering_to_lvlh(alpha: float, beta: float) -> jax.Array:
     return dir_lvlh
 
 
-@jax.jit
-def mee_to_cartesian(mee: ArrayLike) -> jax.Array:
+@partial(jax.jit, static_argnums=(1,))
+def mee_to_cartesian(mee: ArrayLike, mu: float) -> jax.Array:
     """
     Convert modified equinoctial elements to Cartesian elements.
 
     Parameters
     ----------
     mee : ArrayLike
-        Modified equinoctial elements [p(m), f, g, h, k, L(rad)].
+        Modified equinoctial elements [a(m), f, g, h, k, L(rad)].
+    mu : float
+        Gravitational parameter of the central body;
+        changing mu triggers a JIT recompile.
 
     Returns
     -------
@@ -72,9 +75,13 @@ def mee_to_cartesian(mee: ArrayLike) -> jax.Array:
     Notes
     -----
     Formulation from https://spsweb.fltops.jpl.nasa.gov/portaldataops/mpg/MPG_Docs/Source%20Docs/EquinoctalElements-modified.pdf
+
     """
     # unpack state vector
-    p, f, g, h, k, L = mee
+    a, f, g, h, k, L = mee
+
+    # convert SMA and ecc to p
+    p = a * (1 - f**2 - g**2)
 
     # shorthand quantities defined in the document
     alpha_sq = h**2 - k**2
@@ -99,7 +106,7 @@ def mee_to_cartesian(mee: ArrayLike) -> jax.Array:
     vel = (
         1
         / s_sq
-        * jnp.sqrt(MU / p)
+        * jnp.sqrt(mu / p)
         * jnp.array(
             [
                 -(
@@ -126,8 +133,8 @@ def mee_to_cartesian(mee: ArrayLike) -> jax.Array:
     return jnp.concatenate([pos, vel])
 
 
-@jax.jit
-def cartesian_to_mee(cart: ArrayLike) -> jax.Array:
+@partial(jax.jit, static_argnums=(1,))
+def cartesian_to_mee(cart: ArrayLike, mu: float) -> jax.Array:
     """
     Convert Cartesian elements to modified equinoctial elements.
 
@@ -135,17 +142,21 @@ def cartesian_to_mee(cart: ArrayLike) -> jax.Array:
     ----------
     cart : ArrayLike
         Cartesian elements [x, y, z, vx, vy, vz] (m and m/s).
+    mu : float
+        Gravitational parameter of the central body.
 
     Returns
     -------
     mee : Array
-        Modified equinoctial elements [p(m), f, g, h, k, L(rad)].
+        Modified equinoctial elements [a(m), f, g, h, k, L(rad)].
+    mu : float
+        Gravitational parameter of the central body.
 
     Notes
     -----
     Transcribed from Fortran Astrodynamics Toolkit by jacobwilliams
-    """
 
+    """
     pos = cart[0:3]
     vel = cart[3:6]
     rdv = pos @ vel
@@ -155,14 +166,14 @@ def cartesian_to_mee(cart: ArrayLike) -> jax.Array:
     hmag = jnp.linalg.norm(hvec, ord=2)
     hhat = hvec / hmag
     vhat = (rmag * vel - rdv * rhat) / hmag
-    p = hmag**2 / MU
-    k = hhat[0] / (1 + hhat[2])
-    h = -hhat[1] / (1 + hhat[2])
+    p = hmag**2 / mu
+    k = hhat[0] / (1 + hhat[2] + 1e-10)
+    h = -hhat[1] / (1 + hhat[2] + 1e-10)
     kk = k**2
     hh = h**2
     s2 = 1 + hh + kk
     tkh = 2 * k * h
-    ecc = jnp.cross(vel, hvec) / MU - rhat
+    ecc = jnp.cross(vel, hvec) / mu - rhat
     fhat = jnp.array([1 - kk + hh, tkh, -2 * k])
     ghat = jnp.array([tkh, 1 + kk - hh, 2 * h])
     fhat = fhat / s2
@@ -171,11 +182,14 @@ def cartesian_to_mee(cart: ArrayLike) -> jax.Array:
     g = ecc @ ghat
     L = jnp.atan2(rhat[1] - vhat[0], rhat[0] + vhat[1])
 
-    return jnp.array([p, f, g, h, k, L])
+    # convert a to p
+    a = p / (1 - f**2 - g**2)
+
+    return jnp.array([a, f, g, h, k, L])
 
 
-@jax.jit
-def batch_cartesian_to_mee(cart: ArrayLike) -> jax.Array:
+@partial(jax.jit, static_argnums=(1,))
+def batch_cartesian_to_mee(cart: ArrayLike, mu: float) -> jax.Array:
     """
     Vmapped version of cartesian_to_mee, which ensures
     that true longitude is unwrapped correctly.
@@ -184,13 +198,15 @@ def batch_cartesian_to_mee(cart: ArrayLike) -> jax.Array:
     ----------
     cart : ArrayLike
         Cartesian elements (N, 6)
+    mu : float
+        Gravitational parameter of the central body.
 
     Returns
     -------
     mee : Array
         Modified equinoctial elements (N, 6)
     """
-    mee = jax.vmap(cartesian_to_mee)(cart)
+    mee = jax.vmap(partial(cartesian_to_mee, mu=mu))(cart)
 
     # unwrap true longitude
     l_unwrap = jnp.unwrap(mee[:, 5])
@@ -198,22 +214,26 @@ def batch_cartesian_to_mee(cart: ArrayLike) -> jax.Array:
     return jnp.column_stack((mee[:, :5], l_unwrap))
 
 
-@jax.jit
-def batch_mee_to_cartesian(mee: ArrayLike) -> jax.Array:
+@partial(jax.jit, static_argnums=(1,))
+def batch_mee_to_cartesian(mee: ArrayLike, mu: float) -> jax.Array:
     """
     Vmapped version of mee_to_cartesian.
+
+    Does nothing special, just for consistency with its sibling function.
 
     Parameters
     ----------
     mee : ArrayLike
         Modified equinoctial elements (N, 6)
+    mu : float
+        Gravitational parameter of the central body.
 
     Returns
     -------
     cart : Array
         Cartesian elements (N, 6)
     """
-    return jax.vmap(mee_to_cartesian)(mee)
+    return jax.vmap(partial(mee_to_cartesian, mu=mu))(mee)
 
 
 @jax.jit
@@ -262,3 +282,49 @@ def rot_lvlh_inertial(cart: ArrayLike) -> jax.Array:
     """
 
     return rot_inertial_lvlh(cart).T
+
+
+@jax.jit
+def delta_angle_mod(a: float, b: float) -> float:
+    """
+    Shortest phase difference between two angles, i.e.
+    how much a is ahead of b. Returns in range [-pi, pi].
+
+    Source: https://stackoverflow.com/a/2007279
+
+    Parameters
+    ----------
+    a : float
+        First angle.
+    b : float
+        Second angle.
+
+    Returns
+    -------
+    float
+        Shortest phase difference between the two angles.
+
+    """
+    return ((a - b + jnp.pi) % (2 * jnp.pi)) - jnp.pi
+
+
+def a_mee_to_p_mee(y_mee: ArrayLike) -> jax.Array:
+    """
+    Converts a-based MEE to p-based MEE.
+    """
+    a = y_mee[0]
+    f = y_mee[1]
+    g = y_mee[2]
+    p = a * (1 - f**2 - g**2)
+    return y_mee.at[0].set(p)
+
+
+def p_mee_to_a_mee(y_mee: ArrayLike) -> jax.Array:
+    """
+    Converts p-based MEE to a-based MEE.
+    """
+    p = y_mee[0]
+    f = y_mee[1]
+    g = y_mee[2]
+    a = p / (1 - f**2 - g**2)
+    return y_mee.at[0].set(a)

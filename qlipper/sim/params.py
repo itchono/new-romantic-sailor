@@ -4,6 +4,13 @@ from diffrax import CubicInterpolation
 from jax import Array
 
 
+class GuidanceParams(NamedTuple):
+    w_oe: Array
+    rp_min: float
+    penalty_scaling: float
+    penalty_weight: float
+
+
 class Params(NamedTuple):
     """
     Subset of SimConfig struct passed into the actual
@@ -15,9 +22,9 @@ class Params(NamedTuple):
 
     y_target: Array
     conv_tol: float
-    w_oe: Array
-    w_penalty: float
-    kappa: float
+    earth_guidance: GuidanceParams
+    moon_guidance: GuidanceParams
     characteristic_accel: float
     epoch_jd: float
-    sun_ephem: CubicInterpolation  # gives in km
+    sun_ephem: CubicInterpolation  # meters
+    moon_ephem: CubicInterpolation  # meters

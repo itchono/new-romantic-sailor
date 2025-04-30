@@ -1,7 +1,10 @@
+from functools import partial
+
 import jax
 import jax.numpy as jnp
 import pytest
 
+from qlipper.constants import MU_EARTH
 from qlipper.converters import (
     batch_cartesian_to_mee,
     batch_mee_to_cartesian,
@@ -13,16 +16,34 @@ from qlipper.converters import (
 
 def test_cartesian_to_mee():
     cart = jnp.array([1e6, 2e6, 3e6, 4e3, 5e3, 6e3])
-    mee = cartesian_to_mee(cart)
+    mee = cartesian_to_mee(cart, MU_EARTH)
 
-    mee_ref = jnp.array([1.3547e5, -0.8809, 0.4217, -1.3798, -0.6899, -0.6087])
+    mee_ref = jnp.array(
+        [
+            1.3547e5 / (1 - 0.8809**2 - 0.4217**2),
+            -0.8809,
+            0.4217,
+            -1.3798,
+            -0.6899,
+            -0.6087,
+        ]
+    )
 
-    assert mee == pytest.approx(mee_ref, rel=1e-4)
+    assert mee == pytest.approx(mee_ref, rel=2e-3)
 
 
 def test_mee_to_cartesian():
-    mee = jnp.array([1.3547e5, -0.8809, 0.4217, -1.3798, -0.6899, -0.6087])
-    cart = mee_to_cartesian(mee)
+    mee = jnp.array(
+        [
+            1.3547e5 / (1 - 0.8809**2 - 0.4217**2),
+            -0.8809,
+            0.4217,
+            -1.3798,
+            -0.6899,
+            -0.6087,
+        ]
+    )
+    cart = mee_to_cartesian(mee, MU_EARTH)
 
     cart_ref = jnp.array([1e6, 2e6, 3e6, 4e3, 5e3, 6e3])
 
@@ -32,8 +53,8 @@ def test_mee_to_cartesian():
 def test_roundtrip_mee_cartesian():
     cart = jnp.array([1e6, 2e6, 3e6, 4e3, 5e3, 6e3])
 
-    mee = cartesian_to_mee(cart)
-    cart_back = mee_to_cartesian(mee)
+    mee = cartesian_to_mee(cart, MU_EARTH)
+    cart_back = mee_to_cartesian(mee, MU_EARTH)
 
     assert cart_back == pytest.approx(cart, rel=1e-8)
 
@@ -41,9 +62,9 @@ def test_roundtrip_mee_cartesian():
 def test_converters_batched():
     cart = jnp.array([[1e6, 2e6, 3e6, 4e3, 5e3, 6e3], [1e6, 2e6, 3e6, 4e3, 5e3, 6e3]])
 
-    mee = batch_cartesian_to_mee(cart)
+    mee = batch_cartesian_to_mee(cart, MU_EARTH)
 
-    cart_back = batch_mee_to_cartesian(mee)
+    cart_back = batch_mee_to_cartesian(mee, MU_EARTH)
 
     assert cart_back == pytest.approx(cart, rel=1e-8)
 
@@ -54,9 +75,9 @@ def test_unwrapping():
     mee = jnp.array([1e5, 0, 0, 0, 0, 0])[None, :].repeat(50, axis=0)
     mee = mee.at[:, 5].set(ascending_l)
 
-    cart = batch_mee_to_cartesian(mee)
+    cart = batch_mee_to_cartesian(mee, MU_EARTH)
 
-    mee_unwrapped = batch_cartesian_to_mee(cart)
+    mee_unwrapped = batch_cartesian_to_mee(cart, MU_EARTH)
 
     assert jnp.allclose(mee_unwrapped[:, 5], ascending_l)
     assert jnp.diff(mee_unwrapped[:, 5]).max() < 2 * jnp.pi
@@ -69,9 +90,9 @@ def test_non_unwrapping_fails():
     mee = jnp.array([1e5, 0, 0, 0, 0, 0])[None, :].repeat(50, axis=0)
     mee = mee.at[:, 5].set(ascending_l)
 
-    cart = batch_mee_to_cartesian(mee)
+    cart = batch_mee_to_cartesian(mee, MU_EARTH)
 
-    mee_out = jax.vmap(cartesian_to_mee)(cart)
+    mee_out = jax.vmap(partial(cartesian_to_mee, mu=MU_EARTH))(cart)
 
     assert not jnp.allclose(mee_out[:, 5], ascending_l)
     assert jnp.diff(mee_out[:, 5]).min() < 0
@@ -80,7 +101,7 @@ def test_non_unwrapping_fails():
 def test_rot_inertial_lvlh():
     # Reference: MATLAB code
     mee = jnp.array([1.3547e5, -0.8809, 0.4217, -1.3798, -0.6899, -0.6087])
-    cart = mee_to_cartesian(mee)
+    cart = mee_to_cartesian(mee, MU_EARTH)
 
     rot = rot_inertial_lvlh(cart)
 

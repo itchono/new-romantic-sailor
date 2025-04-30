@@ -63,14 +63,18 @@ class SimConfig:
     steering_law: str
     t_span: tuple[float, float]
     conv_tol: float
-    w_oe: Array
-    w_penalty: float
-    penalty_function: str
-    kappa: float
-    dynamics: str
+    earth_w_oe: Array
+    earth_penalty_weight: float
+    earth_penalty_scaling: float
+    earth_rp_min: float
+    moon_w_oe: Array
+    moon_penalty_weight: float
+    moon_penalty_scaling: float
+    moon_rp_min: float
     perturbations: list[str]
     characteristic_accel: float
     epoch_jd: float
+    ephemeris: str = "real"
 
     def __post_init__(self):
         # Validate the configuration
@@ -78,7 +82,12 @@ class SimConfig:
         assert len(self.y_target) == 5, "Target state vector must have length 5"
 
         # enforce array types
-        for key in ["y0", "y_target", "w_oe"]:
+        for key in [
+            "y0",
+            "y_target",
+            "earth_w_oe",
+            "moon_w_oe",
+        ]:
             object.__setattr__(
                 self, key, jnp.array(getattr(self, key), dtype=jnp.float64)
             )

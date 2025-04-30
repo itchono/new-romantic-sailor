@@ -10,6 +10,12 @@ def main():
     parser.add_argument(
         "--folder", type=str, help="Folder containing the run.", required=False
     )
+    parser.add_argument(
+        "--show",
+        action="store_true",
+        help="Whether to show the plots, default False.",
+        required=False,
+    )
 
     args = parser.parse_args()
 
@@ -18,7 +24,7 @@ def main():
 
         args.folder = askdirectory(initialdir=OUTPUT_DIR, title="Select case folder")
 
-    postprocess_from_folder(Path(args.folder))
+    postprocess_from_folder(Path(args.folder), args.show)
 
 
 if __name__ == "__main__":

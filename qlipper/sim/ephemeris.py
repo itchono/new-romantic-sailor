@@ -5,7 +5,7 @@ from pathlib import Path
 
 import jax.numpy as jnp
 import numpy as np
-from jax import Array, jit
+from jax import Array
 from jax.typing import ArrayLike
 from jplephem.names import target_name_pairs, target_names
 from jplephem.spk import SPK, Segment
@@ -111,7 +111,10 @@ def path_to_named_string(path: list[int]) -> str:
 
 
 def compute_kernel_at_times(
-    kernel: SPK, observer: int, target: int, jd_samples: ArrayLike
+    kernel: SPK,
+    observer: int,
+    target: int,
+    jd_samples: ArrayLike,
 ) -> Array:
     """
     Evaluate kernel at given times
@@ -133,13 +136,17 @@ def compute_kernel_at_times(
     Returns
     -------
     ArrayLike
-        The position vectors of the target body at the given times
+        The cartesian state vectors of the target body at the given times,
+        of shape (6, len(jd_samples))
     """
     assert not isinstance(jd_samples, jnp.ndarray), "jd_samples must be a numpy array"
 
     path = resolve_spk_path(kernel, observer, target)
 
-    result = jnp.zeros((3, len(jd_samples)))
+    result = jnp.zeros((6, len(jd_samples)))
+
+    # jplephem gives km/day, we want km/s
+    ONE_DAY = 86400
 
     # the kernel only stores "forward pairs",
     # so we try to evaluate the segment in the forward direction first,
@@ -148,10 +155,12 @@ def compute_kernel_at_times(
     for i in range(0, len(path) - 1):
         try:
             segment: Segment = kernel[path[i], path[i + 1]]
-            result += segment.compute(jd_samples)
+            pos, vel = segment.compute_and_differentiate(jd_samples)
+            result += jnp.concat([pos, vel / ONE_DAY])
         except KeyError:
             segment: Segment = kernel[path[i + 1], path[i]]
-            result -= segment.compute(jd_samples)
+            pos, vel = segment.compute_and_differentiate(jd_samples)
+            result -= jnp.concat([pos, vel / ONE_DAY])
 
     return result
 
@@ -178,11 +187,11 @@ def lookup_body_id(body_name: str) -> int:
     raise ValueError(f"Body name {body_name} not found in the SPICE kernel")
 
 
-def generate_interpolant_arrays(
+def generate_ephem_arrays(
     observer: int, target: int, epoch: float, t_span: ArrayLike, num_samples: int
 ) -> tuple[NDArray[np.floating], NDArray[np.floating]]:
     """
-    Top-level interface for generating SPICE ephemeris interpolant arrays.
+    Top-level interface for generating SPICE ephemeris (interpolant) arrays.
     Given a jd epoch and a time span in seconds, a pair of interpolant
     arrays will be generated, measuring the position of the target body
     relative to the observer body.
@@ -203,9 +212,9 @@ def generate_interpolant_arrays(
 
     Returns
     -------
-    t, y : tuple[NDArray, NDArray]
-        The time array (in elapsed seconds) and the position array, usually in km.
-        Shape is (3, num_samples) for the position array.
+    t, states : tuple[NDArray, NDArray]
+        The time array (in elapsed seconds) and the state array, usually in km.
+        Shape is (6, num_samples) for the state array.
     """
 
     kernel = _ensure_ephemeris()
@@ -214,12 +223,12 @@ def generate_interpolant_arrays(
 
     # log compute path
     path = resolve_spk_path(kernel, observer, target)
-    logger.info(f"Ephemeris compute path: {path_to_named_string(path)}")
+    logger.debug(f"Ephemeris compute path: {path_to_named_string(path)}")
 
     # have to use numpy here because jplephem mutates the input
     t_samples = np.linspace(*t_span, num_samples)
     jd_samples = epoch + t_samples / 86400
 
-    position_samples = compute_kernel_at_times(kernel, observer, target, jd_samples)
+    state_samples = compute_kernel_at_times(kernel, observer, target, jd_samples)
 
-    return t_samples, position_samples
+    return t_samples, state_samples

@@ -5,11 +5,14 @@ from diffrax import (
 from jax import Array
 
 from qlipper.configuration import SimConfig
+from qlipper.constants import MU_EARTH
+from qlipper.converters import cartesian_to_mee
 from qlipper.run.mission_runner import preprocess_y0
 from qlipper.run.prebake import (
     prebake_ode,
     prebake_sim_config,
 )
+from qlipper.sim.dynamics_cartesian import CARTESIAN_DYN_SCALING
 
 
 def single_step_debug(cfg: SimConfig, step_time: float = 1) -> tuple[str, Array, Array]:
@@ -32,10 +35,10 @@ def single_step_debug(cfg: SimConfig, step_time: float = 1) -> tuple[str, Array,
     # prebake
     term = ODETerm(prebake_ode(cfg))
     ode_args = prebake_sim_config(cfg)
+    print(cfg.y0)
     y0 = preprocess_y0(cfg)
 
     # TODO: improve diagnostics tooling, maybe put into unit tests?
-    print(y0)
 
     solver = Tsit5()
 
@@ -45,4 +48,4 @@ def single_step_debug(cfg: SimConfig, step_time: float = 1) -> tuple[str, Array,
         term, 0, step_time, y0, ode_args, state, made_jump=False
     )
 
-    return y
+    return cartesian_to_mee(y * CARTESIAN_DYN_SCALING, MU_EARTH)
